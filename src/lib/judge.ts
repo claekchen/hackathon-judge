@@ -188,6 +188,19 @@ function buildVideoFrameParts(videoFile: string): Part[] {
   return parts;
 }
 
+function buildAudioPart(videoFile: string): Part | null {
+  const baseName = videoFile.replace('.mp4', '');
+  const audioPath = path.join(process.cwd(), "public", "uploads", `audio_${baseName}.mp3`);
+  if (!fs.existsSync(audioPath)) return null;
+  const data = fs.readFileSync(audioPath);
+  return {
+    inlineData: {
+      mimeType: "audio/mp3",
+      data: data.toString("base64"),
+    },
+  };
+}
+
 
 function parseJsonResponse(text: string): any {
   // Strip markdown code blocks if present
@@ -216,6 +229,13 @@ export async function scoreProject(project: ProjectInfo): Promise<ScoreResult> {
   if (project.video_file) {
     const frameParts = buildVideoFrameParts(project.video_file);
     parts.push(...frameParts);
+    
+    // Add audio track if available
+    const audioPart = buildAudioPart(project.video_file);
+    if (audioPart) {
+      parts.push({ text: "[以下是视频Demo的音频轨道]" });
+      parts.push(audioPart);
+    }
   }
 
   parts.push({ text: `${SCORING_PROMPT}\n\n${buildProjectText(project)}` });
@@ -291,6 +311,11 @@ export async function compareProjects(
       parts.push({ text: "--- 项目A的视频Demo截帧 ---" });
       parts.push(...framesA);
     }
+    const audioA = buildAudioPart(a.video_file);
+    if (audioA) {
+      parts.push({ text: "--- 项目A的音频 ---" });
+      parts.push(audioA);
+    }
   }
 
   // Add video B frames if available
@@ -299,6 +324,11 @@ export async function compareProjects(
     if (framesB.length > 0) {
       parts.push({ text: "--- 项目B的视频Demo截帧 ---" });
       parts.push(...framesB);
+    }
+    const audioB = buildAudioPart(b.video_file);
+    if (audioB) {
+      parts.push({ text: "--- 项目B的音频 ---" });
+      parts.push(audioB);
     }
   }
 
