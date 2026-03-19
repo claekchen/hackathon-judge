@@ -135,6 +135,66 @@ function getClient() {
   });
 }
 
+// OpenRouter fallback client using OpenAI-compatible API
+async function callOpenRouter(parts: Part[], model: string = "google/gemini-2.5-pro"): Promise<string> {
+  const apiKey = process.env.OPENROUTER_API_KEY || "";
+  if (!apiKey) throw new Error("No OPENROUTER_API_KEY");
+  
+  // Convert parts to OpenRouter messages format
+  const content: Array<{type: string; text?: string; image_url?: {url: string}}> = [];
+  for (const part of parts) {
+    if ('text' in part && part.text) {
+      content.push({ type: "text", text: part.text });
+    } else if ('inlineData' in part && part.inlineData) {
+      const { mimeType, data } = part.inlineData;
+      if (mimeType.startsWith("image/")) {
+        content.push({ type: "image_url", image_url: { url: `data:${mimeType};base64,${data}` } });
+      } else if (mimeType.startsWith("audio/")) {
+        // OpenRouter doesn't support audio inline, skip
+        content.push({ type: "text", text: "[音频内容无法通过此通道传输，已跳过]" });
+      }
+    }
+  }
+  
+  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "user", content }],
+      max_tokens: 4096,
+    }),
+  });
+  
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`OpenRouter ${resp.status}: ${err}`);
+  }
+  
+  const json = await resp.json() as { choices: Array<{ message: { content: string } }> };
+  return json.choices[0]?.message?.content || "";
+}
+
+async function generateContent(parts: Part[], model: string = "gemini-2.5-pro"): Promise<string> {
+  // Try Vertex Express first, fallback to OpenRouter
+  try {
+    const client = getClient();
+    const result = await client.models.generateContent({ model, contents: parts });
+    return result.text || "";
+  } catch (e) {
+    const msg = (e as Error).message || "";
+    if (msg.includes("401") || msg.includes("403") || msg.includes("UNAUTHENTICATED") || msg.includes("fetch failed")) {
+      console.log(`  Vertex failed, falling back to OpenRouter...`);
+      const orModel = model.includes("flash") ? "google/gemini-2.5-flash" : "google/gemini-2.5-pro";
+      return await callOpenRouter(parts, orModel);
+    }
+    throw e;
+  }
+}
+
 function buildVideoInlinePart(videoFile: string): Part | null {
   // Use frame extraction approach - look for pre-extracted frames
   const baseName = videoFile.replace('.mp4', '');
@@ -213,15 +273,10 @@ async function transcribeAudio(videoFile: string): Promise<string> {
   }
   
   try {
-    const client = getClient();
-    const result = await client.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [
-        audioPart,
-        { text: "请将这段音频完整转录为文字。保留所有对话内容，标注不同说话人。如果有英文内容保留英文原文。只输出转录文本，不要其他内容。" },
-      ],
-    });
-    const transcript = result.text || "";
+    const transcript = await generateContent([
+      audioPart,
+      { text: "请将这段音频完整转录为文字。保留所有对话内容，标注不同说话人。如果有英文内容保留英文原文。只输出转录文本，不要其他内容。" },
+    ], "gemini-2.5-flash");
     // Cache it
     fs.writeFileSync(transcriptPath, transcript);
     console.log(`  Transcribed ${videoFile}: ${transcript.length} chars`);
@@ -252,8 +307,6 @@ function buildProjectText(project: ProjectInfo): string {
 }
 
 export async function scoreProject(project: ProjectInfo): Promise<ScoreResult> {
-  const client = getClient();
-
   const parts: Part[] = [];
 
   // Add video frames if available
@@ -271,11 +324,7 @@ export async function scoreProject(project: ProjectInfo): Promise<ScoreResult> {
   parts.push({ text: `${SCORING_PROMPT}\n\n${buildProjectText(project)}` });
 
   try {
-    const result = await client.models.generateContent({
-      model: "gemini-2.5-pro",
-      contents: parts,
-    });
-    const text = result.text || "";
+    const text = await generateContent(parts);
     const json = parseJsonResponse(text);
 
     const weighted =
@@ -330,8 +379,6 @@ export async function compareProjects(
   a: ProjectInfo,
   b: ProjectInfo
 ): Promise<MatchResult> {
-  const client = getClient();
-
   const parts: Part[] = [];
 
   // Add video A frames if available
@@ -371,11 +418,7 @@ ${buildProjectText(b)}`;
   parts.push({ text: prompt });
 
   try {
-    const result = await client.models.generateContent({
-      model: "gemini-2.5-pro",
-      contents: parts,
-    });
-    const text = result.text || "";
+    const text = await generateContent(parts);
     const json = parseJsonResponse(text);
 
     let winner_id: string;
