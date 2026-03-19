@@ -201,6 +201,37 @@ function buildAudioPart(videoFile: string): Part | null {
   };
 }
 
+async function transcribeAudio(videoFile: string): Promise<string> {
+  const audioPart = buildAudioPart(videoFile);
+  if (!audioPart) return "";
+  
+  // Check for cached transcript
+  const baseName = videoFile.replace('.mp4', '');
+  const transcriptPath = path.join(process.cwd(), "public", "uploads", `transcript_${baseName}.txt`);
+  if (fs.existsSync(transcriptPath)) {
+    return fs.readFileSync(transcriptPath, "utf-8");
+  }
+  
+  try {
+    const client = getClient();
+    const result = await client.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [
+        audioPart,
+        { text: "请将这段音频完整转录为文字。保留所有对话内容，标注不同说话人。如果有英文内容保留英文原文。只输出转录文本，不要其他内容。" },
+      ],
+    });
+    const transcript = result.text || "";
+    // Cache it
+    fs.writeFileSync(transcriptPath, transcript);
+    console.log(`  Transcribed ${videoFile}: ${transcript.length} chars`);
+    return transcript;
+  } catch (e) {
+    console.error(`  Transcription failed for ${videoFile}:`, (e as Error).message);
+    return "";
+  }
+}
+
 
 function parseJsonResponse(text: string): any {
   // Strip markdown code blocks if present
@@ -230,11 +261,10 @@ export async function scoreProject(project: ProjectInfo): Promise<ScoreResult> {
     const frameParts = buildVideoFrameParts(project.video_file);
     parts.push(...frameParts);
     
-    // Add audio track if available
-    const audioPart = buildAudioPart(project.video_file);
-    if (audioPart) {
-      parts.push({ text: "[以下是视频Demo的音频轨道]" });
-      parts.push(audioPart);
+    // Add audio transcript
+    const transcript = await transcribeAudio(project.video_file);
+    if (transcript) {
+      parts.push({ text: `[视频Demo语音转录]\n${transcript}` });
     }
   }
 
@@ -311,10 +341,9 @@ export async function compareProjects(
       parts.push({ text: "--- 项目A的视频Demo截帧 ---" });
       parts.push(...framesA);
     }
-    const audioA = buildAudioPart(a.video_file);
-    if (audioA) {
-      parts.push({ text: "--- 项目A的音频 ---" });
-      parts.push(audioA);
+    const transcriptA = await transcribeAudio(a.video_file);
+    if (transcriptA) {
+      parts.push({ text: `--- 项目A的语音转录 ---\n${transcriptA}` });
     }
   }
 
@@ -325,10 +354,9 @@ export async function compareProjects(
       parts.push({ text: "--- 项目B的视频Demo截帧 ---" });
       parts.push(...framesB);
     }
-    const audioB = buildAudioPart(b.video_file);
-    if (audioB) {
-      parts.push({ text: "--- 项目B的音频 ---" });
-      parts.push(audioB);
+    const transcriptB = await transcribeAudio(b.video_file);
+    if (transcriptB) {
+      parts.push({ text: `--- 项目B的语音转录 ---\n${transcriptB}` });
     }
   }
 
