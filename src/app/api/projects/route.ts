@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
   // Handle video file upload
   let videoFileName = "";
   if (videoFile && videoFile.size > 0) {
-    const uploadsDir = path.join(process.cwd(), "public", "uploads");
+    const uploadsDir = path.join(process.cwd(), "data", "uploads");
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }

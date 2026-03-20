@@ -164,7 +164,7 @@ export default function ProjectDetail() {
               className="w-full max-w-2xl rounded-lg border"
               preload="metadata"
             >
-              <source src={`/uploads/${p.video_file}`} type="video/mp4" />
+              <source src={`/api/uploads/${p.video_file}`} type="video/mp4" />
               Your browser does not support the video tag.
             </video>
           </div>

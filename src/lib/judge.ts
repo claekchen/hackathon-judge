@@ -147,9 +147,9 @@ async function callOpenRouter(parts: Part[], model: string = "google/gemini-2.5-
       content.push({ type: "text", text: part.text });
     } else if ('inlineData' in part && part.inlineData) {
       const { mimeType, data } = part.inlineData;
-      if (mimeType.startsWith("image/")) {
+      if (mimeType?.startsWith("image/")) {
         content.push({ type: "image_url", image_url: { url: `data:${mimeType};base64,${data}` } });
-      } else if (mimeType.startsWith("audio/")) {
+      } else if (mimeType?.startsWith("audio/")) {
         // OpenRouter doesn't support audio inline, skip
         content.push({ type: "text", text: "[音频内容无法通过此通道传输，已跳过]" });
       }
@@ -186,7 +186,7 @@ async function generateContent(parts: Part[], model: string = "gemini-2.5-pro"):
     return result.text || "";
   } catch (e) {
     const msg = (e as Error).message || "";
-    if (msg.includes("401") || msg.includes("403") || msg.includes("UNAUTHENTICATED") || msg.includes("fetch failed")) {
+    if (msg.includes("401") || msg.includes("403") || msg.includes("UNAUTHENTICATED") || msg.includes("fetch failed") || msg.includes("Authentication") || msg.includes("API key")) {
       console.log(`  Vertex failed, falling back to OpenRouter...`);
       const orModel = model.includes("flash") ? "google/gemini-2.5-flash" : "google/gemini-2.5-pro";
       return await callOpenRouter(parts, orModel);
@@ -198,7 +198,7 @@ async function generateContent(parts: Part[], model: string = "gemini-2.5-pro"):
 function buildVideoInlinePart(videoFile: string): Part | null {
   // Use frame extraction approach - look for pre-extracted frames
   const baseName = videoFile.replace('.mp4', '');
-  const framesDir = path.join(process.cwd(), "public", "uploads", "frames");
+  const framesDir = path.join(process.cwd(), "data", "uploads", "frames");
   
   if (!fs.existsSync(framesDir)) return null;
   
@@ -209,7 +209,7 @@ function buildVideoInlinePart(videoFile: string): Part | null {
   
   if (frames.length === 0) {
     // Fallback: try inline video
-    const filePath = path.join(process.cwd(), "public", "uploads", videoFile);
+    const filePath = path.join(process.cwd(), "data", "uploads", videoFile);
     if (!fs.existsSync(filePath)) return null;
     const data = fs.readFileSync(filePath);
     return {
@@ -225,7 +225,7 @@ function buildVideoInlinePart(videoFile: string): Part | null {
 
 function buildVideoFrameParts(videoFile: string): Part[] {
   const baseName = videoFile.replace('.mp4', '');
-  const framesDir = path.join(process.cwd(), "public", "uploads", "frames");
+  const framesDir = path.join(process.cwd(), "data", "uploads", "frames");
   
   if (!fs.existsSync(framesDir)) return [];
   
@@ -250,7 +250,7 @@ function buildVideoFrameParts(videoFile: string): Part[] {
 
 function buildAudioPart(videoFile: string): Part | null {
   const baseName = videoFile.replace('.mp4', '');
-  const audioPath = path.join(process.cwd(), "public", "uploads", `audio_${baseName}.mp3`);
+  const audioPath = path.join(process.cwd(), "data", "uploads", `audio_${baseName}.mp3`);
   if (!fs.existsSync(audioPath)) return null;
   const data = fs.readFileSync(audioPath);
   return {
@@ -267,7 +267,7 @@ async function transcribeAudio(videoFile: string): Promise<string> {
   
   // Check for cached transcript
   const baseName = videoFile.replace('.mp4', '');
-  const transcriptPath = path.join(process.cwd(), "public", "uploads", `transcript_${baseName}.txt`);
+  const transcriptPath = path.join(process.cwd(), "data", "uploads", `transcript_${baseName}.txt`);
   if (fs.existsSync(transcriptPath)) {
     return fs.readFileSync(transcriptPath, "utf-8");
   }
